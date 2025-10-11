@@ -131,10 +131,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ExcelInputPanel.cpp" />
+    <ClCompile Include="Logger.cpp" />
     <ClCompile Include="MyApp.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ExcelInputPanel.h" />
+    <ClInclude Include="Logger.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

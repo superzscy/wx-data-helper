@@ -22,9 +22,10 @@ public:
     wxString GetReturnColumnName() const;
     wxString GetErrorMsg() const { return m_errorMsg; }
 
-    const wxBaseArray<wxArrayString>& GetContentRows() const { return m_contentRows; };
-    const int GetReturnColumnIndex() const { return m_returnColumnIndex; };
-	bool Match(const wxBaseArray<wxArrayString>& contentRows, int returnColumnIndex);
+    const wxBaseArray<wxArrayString>& GetContentRows() const { return m_contentRows; }
+    const int GetMatchColumnIndex() const { return m_matchColumnIndex; }
+    const int GetReturnColumnIndex() const { return m_returnColumnIndex; }
+    bool Match(const wxBaseArray<wxArrayString>& contentRows, int matchColumnIndex, int returnColumnIndex);
 
 private:
     void OnSelectFile(wxCommandEvent& event);

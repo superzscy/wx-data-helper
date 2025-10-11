@@ -1,4 +1,5 @@
 ﻿#include "ExcelInputPanel.h"
+#include "Logger.h"
 #include <filesystem>
 #include <fstream>
 #include <wx/busyinfo.h>
@@ -100,7 +101,7 @@ wxString ExcelInputPanel::GetReturnColumnName() const {
     return m_columnInputReturn ? m_columnInputReturn->GetValue() : wxString("");
 }
 
-bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int returnColumnIndex)
+bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int matchColumnIndex, int returnColumnIndex)
 {
     wxString fullText;
     for (const auto& myRow : m_contentRows)
@@ -109,7 +110,7 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int r
         wxString myKey = myRow[m_matchColumnIndex];
         for (const auto& theOtherRow : contentRows)
         {
-            wxString theOtherKey = theOtherRow[m_matchColumnIndex];
+            wxString theOtherKey = theOtherRow[matchColumnIndex];
             if(myKey == theOtherKey)
             {
                 searchValue = theOtherRow[returnColumnIndex];
@@ -139,7 +140,9 @@ bool ExcelInputPanel::Parse() {
         m_errorMsg = wxString::Format(wxT("%s未加载"), m_labelPrefix);
         return false;
     }
+    LOG_INFO(wxString::Format(wxT("解析%s"), GetFilePath()).ToUTF8().data());
 
+    int parsedRowIndex = 0;
     try
     {
         m_errorMsg.Clear();
@@ -153,16 +156,23 @@ bool ExcelInputPanel::Parse() {
 
 		int startRowIndex = 0;
         int highestColumn = ws.highest_column().index;
+		int rowCount = ws.highest_row();
 
-        for (const auto& row : ws.rows(false))
+        for (const auto& row : ws.rows(true))
         {
-            int rowIndex = row.front().row();  // 获取当前行号
+            if (row.empty())
+            {
+                break;
+            }
+            parsedRowIndex = row.front().row();  // 获取当前行号
+
+            LOG_INFO(wxString::Format(wxT("  Line:%d"), parsedRowIndex).ToStdString());
 
             wxArrayString currentRowCntent;
 
             for (int col = 1; col <= highestColumn; ++col)
             {
-                xlnt::cell cell = ws.cell(xlnt::cell_reference(col, rowIndex));
+                xlnt::cell cell = ws.cell(xlnt::cell_reference(col, parsedRowIndex));
 				wxString cellContent;
                 if (cell.has_value())
                 {
@@ -172,11 +182,11 @@ bool ExcelInputPanel::Parse() {
                 currentRowCntent.Add(cellContent);
                 if ((m_matchColumnIndex == -1) && cellContent == GetMatchColumnName())
                 {
-					startRowIndex = rowIndex;
+					startRowIndex = parsedRowIndex;
                     m_matchColumnIndex = col - 1; // 索引从0开始
                 }
 
-                if ((m_returnColumnIndex == -1) && cellContent == GetReturnColumnName())
+                if (m_bHasReturnCol && (m_returnColumnIndex == -1) && cellContent == GetReturnColumnName())
                 {
                     m_returnColumnIndex = col - 1; // 索引从0开始
                 }
@@ -234,7 +244,7 @@ bool ExcelInputPanel::Parse() {
 		return true;
     }
     catch (const std::exception& e) {
-        m_errorMsg = wxString::Format(wxT("%s表加载失败：%s"), m_labelPrefix, e.what());
+        m_errorMsg = wxString::Format(wxT("%s解析失败：%d %s"), m_labelPrefix, parsedRowIndex, e.what());
         return false;
 	}
 }

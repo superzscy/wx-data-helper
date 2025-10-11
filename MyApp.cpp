@@ -1,5 +1,6 @@
 ﻿// Start of wxWidgets "Hello World" Program
 #include "ExcelInputPanel.h"
+#include "Logger.h"
 #include <filesystem>
 #include <fstream>
 #include <wx/busyinfo.h>
@@ -39,12 +40,9 @@ enum
 
 bool MyApp::OnInit()
 {
-    //std::ofstream* logfile = new std::ofstream("log.txt");
-    //logfile->setf(std::ios::unitbuf);
-    //wxLog::SetActiveTarget(new wxLogStream(logfile));
-    wxLog::SetActiveTarget(new wxLogStderr());
+    Logger::Instance().Init("log/wx_data_helper.log");
 
-    wxLogMessage(wxT("程序启动"));
+    LOG_INFO("程序启动");
 
     MyFrame* frame = new MyFrame();
     frame->Show(true);
@@ -132,7 +130,7 @@ void MyFrame::StartMatch(wxCommandEvent& event)
             errorMsg = m_Panel2->GetErrorMsg();
             break;
         }
-        bSucceed = m_Panel1->Match(m_Panel2->GetContentRows(), m_Panel2->GetReturnColumnIndex());
+        bSucceed = m_Panel1->Match(m_Panel2->GetContentRows(), m_Panel2->GetMatchColumnIndex(), m_Panel2->GetReturnColumnIndex());
         if (!bSucceed)
         {
             errorMsg = m_Panel1->GetErrorMsg();
@@ -151,5 +149,5 @@ void MyFrame::StartMatch(wxCommandEvent& event)
 
 void MyFrame::OnHello(wxCommandEvent& event)
 {
-    wxLogMessage("Hello world from wxWidgets!");
+    LOG_INFO("Hello world from wxWidgets!");
 }
