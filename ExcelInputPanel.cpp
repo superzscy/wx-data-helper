@@ -104,10 +104,15 @@ wxString ExcelInputPanel::GetReturnColumnName() const {
 bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int matchColumnIndex, int returnColumnIndex)
 {
     wxString fullText;
-    for (const auto& myRow : m_contentRows)
+    LOG_INFO(wxString::Format(wxT("开始查找, 一共%d行"), (int)m_contentRows.size()).ToUTF8().data());
+
+    for (int index = 0; index < m_contentRows.size(); index++)
     {
+        const auto& myRow = m_contentRows[index];
+
         wxString searchValue;
         wxString myKey = myRow[m_matchColumnIndex];
+
         for (const auto& theOtherRow : contentRows)
         {
             wxString theOtherKey = theOtherRow[matchColumnIndex];
@@ -120,14 +125,23 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int m
         fullText += searchValue + "\n";
     }
 
-    wxTheClipboard->Clear();  // 清除旧内容
-    wxTheClipboard->SetData(new wxTextDataObject(fullText));
-    if (!wxTheClipboard->Flush())
+    LOG_INFO("查找完成, 结果:");
+    LOG_INFO(wxString::Format(wxT("\n---\n%s---"), fullText).ToUTF8().data());
+    
+    for (int i = 0; i < 3; i++)
     {
-        m_errorMsg = wxString("无法将数据复制到剪贴板");
-        return false;
-	}
-    return true;
+        wxTheClipboard->Clear();  // 清除旧内容
+        wxTheClipboard->SetData(new wxTextDataObject(fullText));
+        if (wxTheClipboard->Flush())
+        {
+            return true;
+        }
+
+        wxThread::Sleep(1000);
+    }
+
+    m_errorMsg = wxString(wxT("无法将数据复制到剪贴板, 请从日志里手动拷贝结果"));
+    return false;
 }
 
 bool ExcelInputPanel::IsReady() const {
@@ -158,18 +172,20 @@ bool ExcelInputPanel::Parse() {
         int highestColumn = ws.highest_column().index;
 		int rowCount = ws.highest_row();
 
-        for (const auto& row : ws.rows(true))
+        auto allRows = ws.rows(true);
+        LOG_INFO(wxString::Format(wxT("总共行数:%d"), (int)allRows.length()).ToUTF8().data());
+
+        for (int rowIndex = 0; rowIndex < allRows.length(); rowIndex++)
         {
+            const auto& row = allRows[rowIndex];
             if (row.empty())
             {
                 break;
             }
             parsedRowIndex = row.front().row();  // 获取当前行号
 
-            LOG_INFO(wxString::Format(wxT("  Line:%d"), parsedRowIndex).ToStdString());
-
             wxArrayString currentRowCntent;
-
+            wxString rowContent;
             for (int col = 1; col <= highestColumn; ++col)
             {
                 xlnt::cell cell = ws.cell(xlnt::cell_reference(col, parsedRowIndex));
@@ -178,6 +194,8 @@ bool ExcelInputPanel::Parse() {
                 {
                     cellContent = wxString::FromUTF8(cell.to_string());
                 }
+
+                rowContent += " | " + cellContent;
 
                 currentRowCntent.Add(cellContent);
                 if ((m_matchColumnIndex == -1) && cellContent == GetMatchColumnName())
@@ -191,6 +209,8 @@ bool ExcelInputPanel::Parse() {
                     m_returnColumnIndex = col - 1; // 索引从0开始
                 }
             }
+
+            LOG_INFO(wxString::Format(wxT("  Line:%04d %s"), parsedRowIndex, rowContent).ToUTF8().data());
 
             if (m_matchColumnIndex >= 0)
             {

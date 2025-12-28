@@ -43,7 +43,19 @@ void Logger::Init(const std::string& filename)
     std::lock_guard<std::mutex> lock(mutex_);
     log_filename_ = filename;
     RotateOldFileByModifyTime();   // 重命名旧日志
+
+    // 如果已有打开的流，先关闭它再重新打开
+    if (ofs_.is_open()) {
+        ofs_.close();
+    }
+
     ofs_.open(log_filename_, std::ios::out | std::ios::app);
+    if (!ofs_.is_open()) {
+        std::cerr << "Failed to open log file: " << log_filename_ << std::endl;
+    } else {
+        // 使流在每次插入后自动 flush，增加实时性保障
+        ofs_ << std::unitbuf;
+    }
 }
 
 void Logger::Log(const std::string& level, const std::string& msg)
@@ -56,6 +68,15 @@ void Logger::Log(const std::string& level, const std::string& msg)
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
 
     ofs_ << "[" << buf << "] [" << level << "] " << msg << std::endl;
+
+    // 额外保证写入被刷新到底层文件
+    try {
+        ofs_.flush();
+    }
+    catch (...) {
+        // 忽略 flush 失败，但可选地输出错误以便诊断
+        std::cerr << "Logger: flush failed\n";
+    }
 }
 
 void Logger::RotateOldFileByModifyTime()
