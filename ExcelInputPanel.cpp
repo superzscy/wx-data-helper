@@ -3,9 +3,20 @@
 #include <filesystem>
 #include <fstream>
 #include <wx/busyinfo.h>
-#include <wx/clipbrd.h>
 #include <wx/filedlg.h>
-#include <wx/dataobj.h>
+
+namespace
+{
+std::string ToUtf8String(const wxString& text)
+{
+    wxScopedCharBuffer utf8 = text.ToUTF8();
+    if (!utf8)
+    {
+        return std::string();
+    }
+    return std::string(utf8.data());
+}
+}
 
 ExcelInputPanel::ExcelInputPanel(wxWindow* parent, const wxString& labelPrefix, bool bHasReturnCol)
     : wxPanel(parent)
@@ -103,7 +114,13 @@ wxString ExcelInputPanel::GetReturnColumnName() const {
 
 bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int matchColumnIndex, int returnColumnIndex)
 {
-    wxString fullText;
+    if (m_contentRows.size() != m_contentRowNumbers.GetCount())
+    {
+        m_errorMsg = wxT("内部数据行号异常，无法写回结果");
+        return false;
+    }
+
+    wxArrayString matchedValues;
     LOG_INFO(wxString::Format(wxT("开始查找, 一共%d行"), (int)m_contentRows.size()).ToUTF8().data());
 
     for (int index = 0; index < m_contentRows.size(); index++)
@@ -122,26 +139,58 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int m
                 break;
 			}
         }
-        fullText += searchValue + "\n";
+        matchedValues.Add(searchValue);
     }
 
     LOG_INFO("查找完成, 结果:");
-    LOG_INFO(wxString::Format(wxT("\n---\n%s---"), fullText).ToUTF8().data());
-    
-    for (int i = 0; i < 3; i++)
+    wxString fullText;
+    for (const auto& val : matchedValues)
     {
-        wxTheClipboard->Clear();  // 清除旧内容
-        wxTheClipboard->SetData(new wxTextDataObject(fullText));
-        if (wxTheClipboard->Flush())
+        fullText += val + "\n";
+    }
+    LOG_INFO(wxString::Format(wxT("\n---\n%s---"), fullText).ToUTF8().data());
+
+    try
+    {
+        const std::filesystem::path sourcePath(GetFilePath().ToStdWstring());
+        std::filesystem::path outputPath = sourcePath.parent_path() /
+            std::filesystem::path(sourcePath.stem().wstring() + L"_matched" + sourcePath.extension().wstring());
+
+        std::filesystem::copy_file(sourcePath, outputPath, std::filesystem::copy_options::overwrite_existing);
+
+        xlnt::workbook outputWorkbook;
         {
-            return true;
+            std::ifstream file(outputPath, std::ios::binary);
+            outputWorkbook.load(file);
         }
 
-        wxThread::Sleep(1000);
-    }
+        auto ws = outputWorkbook.sheet_by_title(ToUtf8String(GetSelectedSheet()));
+        int targetCol = ws.highest_column().index + 1;
 
-    m_errorMsg = wxString(wxT("无法将数据复制到剪贴板, 请从日志里手动拷贝结果"));
-    return false;
+        if (m_headerRowIndex > 0)
+        {
+            ws.cell(xlnt::cell_reference(targetCol, m_headerRowIndex)).value(std::string(u8"匹配结果"));
+        }
+
+        for (int i = 0; i < matchedValues.size(); i++)
+        {
+            ws.cell(xlnt::cell_reference(targetCol, m_contentRowNumbers[i])).value(ToUtf8String(matchedValues[i]));
+        }
+
+        {
+            std::ofstream outFile(outputPath, std::ios::binary);
+            outputWorkbook.save(outFile);
+        }
+
+        m_outputFilePath = wxString(outputPath.wstring().c_str());
+        LOG_INFO(wxString::Format(wxT("结果已写入: %s"), m_outputFilePath).ToUTF8().data());
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        m_errorMsg = wxString::Format(wxT("写入结果失败: %s"), e.what());
+        return false;
+    }
 }
 
 bool ExcelInputPanel::IsReady() const {
@@ -160,11 +209,14 @@ bool ExcelInputPanel::Parse() {
     try
     {
         m_errorMsg.Clear();
-		m_contentRows.Empty();
+        m_contentRows.Empty();
+        m_contentRowNumbers.Empty();
         m_matchColumnIndex = -1;
         m_returnColumnIndex = -1;
+        m_headerRowIndex = -1;
+        m_outputFilePath.clear();
 
-        auto ws = m_workbook.sheet_by_title(GetSelectedSheet().ToStdString());
+        auto ws = m_workbook.sheet_by_title(ToUtf8String(GetSelectedSheet()));
 
         wxArrayString titleNames;
 
@@ -217,10 +269,12 @@ bool ExcelInputPanel::Parse() {
                 if (titleNames.GetCount() == 0)
                 {
                     titleNames = currentRowCntent;
+                    m_headerRowIndex = parsedRowIndex;
                 }
                 else
                 {
                     m_contentRows.Add(currentRowCntent);
+                    m_contentRowNumbers.Add(parsedRowIndex);
                 }
             }
 		}

@@ -139,7 +139,8 @@ void MyFrame::StartMatch(wxCommandEvent& event)
 
     if (bSucceed)
     {
-        wxMessageBox(wxT("匹配完成, 结果已拷贝, 请粘贴至excel表格中"), wxT("信息"), wxOK | wxICON_INFORMATION);
+        wxMessageBox(wxString::Format(wxT("匹配完成, 结果已写入文件:\n%s"), m_Panel1->GetOutputFilePath()),
+            wxT("信息"), wxOK | wxICON_INFORMATION);
     }
     else
     {

@@ -21,6 +21,7 @@ public:
     wxString GetMatchColumnName() const;
     wxString GetReturnColumnName() const;
     wxString GetErrorMsg() const { return m_errorMsg; }
+    wxString GetOutputFilePath() const { return m_outputFilePath; }
 
     const wxBaseArray<wxArrayString>& GetContentRows() const { return m_contentRows; }
     const int GetMatchColumnIndex() const { return m_matchColumnIndex; }
@@ -43,7 +44,10 @@ private:
 	bool m_bHasReturnCol = false;
     int m_matchColumnIndex = -1;
 	int m_returnColumnIndex = -1;
+    int m_headerRowIndex = -1;
     wxBaseArray<wxArrayString> m_contentRows;
+    wxArrayInt m_contentRowNumbers;
 
     wxString m_errorMsg;
+    wxString m_outputFilePath;
 };
