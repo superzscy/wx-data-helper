@@ -27,7 +27,7 @@ private:
     void OnExit(wxCommandEvent& event);
     void OnAbout(wxCommandEvent& event);
 
-    void StartMatch(wxCommandEvent& event);
+    void StartExtract(wxCommandEvent& event);
 
     ExcelInputPanel* m_Panel1 = nullptr;
     ExcelInputPanel* m_Panel2 = nullptr;
@@ -50,11 +50,11 @@ bool MyApp::OnInit()
 }
 
 MyFrame::MyFrame()
-    : wxFrame(nullptr, wxID_ANY, wxT("数据小帮手"))
+    : wxFrame(nullptr, wxID_ANY, wxT("数据提取助手"))
 {
     wxMenu* menuFile = new wxMenu;
-    menuFile->Append(ID_Hello, "&Hello...\tCtrl-H",
-        "Help string shown in status bar for this menu item");
+    menuFile->Append(ID_Hello, wxT("问候"),
+        wxT("测试菜单"));
     menuFile->AppendSeparator();
     menuFile->Append(wxID_EXIT);
 
@@ -62,13 +62,13 @@ MyFrame::MyFrame()
     menuHelp->Append(wxID_ABOUT);
 
     wxMenuBar* menuBar = new wxMenuBar;
-    menuBar->Append(menuFile, "&File");
-    menuBar->Append(menuHelp, "&Help");
+    menuBar->Append(menuFile, wxT("文件"));
+    menuBar->Append(menuHelp, wxT("帮助"));
 
     SetMenuBar(menuBar);
 
     CreateStatusBar();
-    SetStatusText("Welcome to wxWidgets!");
+    SetStatusText("就绪");
 
     Bind(wxEVT_MENU, &MyFrame::OnHello, this, ID_Hello);
     Bind(wxEVT_MENU, &MyFrame::OnAbout, this, wxID_ABOUT);
@@ -78,18 +78,24 @@ MyFrame::MyFrame()
 
     wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    m_Panel1 = new ExcelInputPanel(this, wxT("表1:"), false);
+    m_Panel1 = new ExcelInputPanel(this, wxT("表1："), false);
     mainSizer->Add(m_Panel1, 0, wxEXPAND | wxALL, 10);
 
-    m_Panel2 = new ExcelInputPanel(this, wxT("表2:"), true);
+    m_Panel2 = new ExcelInputPanel(this, wxT("表2："), true);
     mainSizer->Add(m_Panel2, 0, wxEXPAND | wxALL, 10);
 
-    wxButton* btnStartMatch = new wxButton(this, wxID_ANY, wxT("开始匹配"));
-    btnStartMatch->Bind(wxEVT_BUTTON, &MyFrame::StartMatch, this);
+    wxButton* btnStartMatch = new wxButton(this, wxID_ANY, wxT("开始提取"));
+    btnStartMatch->Bind(wxEVT_BUTTON, &MyFrame::StartExtract, this);
     mainSizer->Add(btnStartMatch, 0, wxCENTER | wxALL, 10);
 
-    this->SetSize(600, 500);
     this->SetSizer(mainSizer);
+    this->Layout();
+    this->Fit();
+    wxSize size = this->GetSize();
+    if (size.GetWidth() < 680) size.SetWidth(680);
+    if (size.GetHeight() < 780) size.SetHeight(780);
+    this->SetSize(size);
+    this->SetMinSize(wxSize(680, 780));
 }
 
 void MyFrame::OnExit(wxCommandEvent& event)
@@ -99,15 +105,15 @@ void MyFrame::OnExit(wxCommandEvent& event)
 
 void MyFrame::OnAbout(wxCommandEvent& event)
 {
-    wxMessageBox("This is a wxWidgets Hello World example",
-        "About Hello World", wxOK | wxICON_INFORMATION);
+    wxMessageBox("用于根据匹配列从表2提取字段并写回表1副本",
+        "关于", wxOK | wxICON_INFORMATION);
 }
 
-void MyFrame::StartMatch(wxCommandEvent& event)
+void MyFrame::StartExtract(wxCommandEvent& event)
 {
     if (!m_Panel1 || !m_Panel1->IsReady() || !m_Panel2 || !m_Panel2->IsReady())
     {
-        wxMessageBox(wxT("请确保两个表格都已正确加载, 并且参数有效！"), wxT("错误"), wxOK | wxICON_ERROR);
+        wxMessageBox(wxT("请确保两个表都已加载，且参数有效。"), wxT("错误"), wxOK | wxICON_ERROR);
         return;
     }
     
@@ -116,7 +122,7 @@ void MyFrame::StartMatch(wxCommandEvent& event)
     
     do
     {
-        wxBusyInfo info(wxT("正在处理数据，请稍候..."), this);
+        wxBusyInfo info(wxT("正在提取数据，请稍候..."), this);
 
         bSucceed = m_Panel1->Parse();
         if (!bSucceed)
@@ -124,13 +130,22 @@ void MyFrame::StartMatch(wxCommandEvent& event)
             errorMsg = m_Panel1->GetErrorMsg();
             break;
         }
+        m_Panel2->ConfigureFilterBaseColumns(m_Panel1->GetTitleNames());
+
         bSucceed = m_Panel2->Parse();
         if (!bSucceed)
         {
             errorMsg = m_Panel2->GetErrorMsg();
             break;
         }
-        bSucceed = m_Panel1->Match(m_Panel2->GetContentRows(), m_Panel2->GetMatchColumnIndex(), m_Panel2->GetReturnColumnIndex());
+        bSucceed = m_Panel1->Match(
+            m_Panel2->GetContentRows(),
+            m_Panel2->GetMatchColumnIndex(),
+            m_Panel2->GetExtractColumnIndices(),
+            m_Panel2->GetExtractColumnNames(),
+            m_Panel2->ShouldFilter(),
+            m_Panel2->GetFilterLeftColumnIndex(),
+            m_Panel2->GetFilterRightColumnIndex());
         if (!bSucceed)
         {
             errorMsg = m_Panel1->GetErrorMsg();
@@ -139,7 +154,7 @@ void MyFrame::StartMatch(wxCommandEvent& event)
 
     if (bSucceed)
     {
-        wxMessageBox(wxString::Format(wxT("匹配完成, 结果已写入文件:\n%s"), m_Panel1->GetOutputFilePath()),
+        wxMessageBox(wxString::Format(wxT("提取完成，结果已写入：\n%s"), m_Panel1->GetOutputFilePath()),
             wxT("信息"), wxOK | wxICON_INFORMATION);
     }
     else
@@ -150,5 +165,5 @@ void MyFrame::StartMatch(wxCommandEvent& event)
 
 void MyFrame::OnHello(wxCommandEvent& event)
 {
-    LOG_INFO("Hello world from wxWidgets!");
+    LOG_INFO("来自wxWidgets的问候");
 }
