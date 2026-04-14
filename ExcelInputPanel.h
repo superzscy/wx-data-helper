@@ -6,6 +6,8 @@
 #include <xlnt/xlnt.hpp>
 #include <vector>
 
+wxDECLARE_EVENT(wxEVT_EXCEL_PANEL_COLUMNS_UPDATED, wxCommandEvent);
+
 class ExcelInputPanel : public wxPanel
 {
 public:
@@ -22,6 +24,7 @@ public:
     wxString GetMatchColumnName() const;
     wxString GetExtractColumnName() const;
     wxArrayString GetExtractColumnNames() const;
+    const wxArrayString& GetDetectedColumnNames() const { return m_detectedColumnNames; }
     const wxArrayString& GetTitleNames() const { return m_titleNames; }
     void ConfigureFilterBaseColumns(const wxArrayString& baseColumns);
     bool ShouldFilter() const { return m_filterLeftColumnIndex >= 0 && m_filterRightColumnIndex >= 0; }
@@ -43,6 +46,7 @@ private:
     void OnRemoveExtractColumn(wxCommandEvent& event);
     void AddExtractColumnConfigRow(const wxString& extractColumnName = wxString());
     void RefreshColumnChoices();
+    void NotifyColumnsUpdated();
     bool IsFilterEnabled() const;
 
     wxButton* m_btnSelectFile = nullptr;

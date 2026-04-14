@@ -3,8 +3,13 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 #include <wx/busyinfo.h>
 #include <wx/filedlg.h>
+
+wxDEFINE_EVENT(wxEVT_EXCEL_PANEL_COLUMNS_UPDATED, wxCommandEvent);
 
 namespace
 {
@@ -16,6 +21,21 @@ std::string ToUtf8String(const wxString& text)
         return std::string();
     }
     return std::string(utf8.data());
+}
+
+std::wstring BuildTimestampSuffix()
+{
+    const std::time_t now = std::time(nullptr);
+    std::tm tmValue{};
+#if defined(_WIN32)
+    localtime_s(&tmValue, &now);
+#else
+    localtime_r(&now, &tmValue);
+#endif
+
+    std::wstringstream ss;
+    ss << std::put_time(&tmValue, L"%Y%m%d_%H%M%S");
+    return ss.str();
 }
 }
 
@@ -72,8 +92,8 @@ ExcelInputPanel::ExcelInputPanel(wxWindow* parent, const wxString& labelPrefix, 
         m_filterBoxSizer->Add(m_filterEnableCheck, 0, wxBOTTOM, 5);
 
         wxBoxSizer* filterRow = new wxBoxSizer(wxHORIZONTAL);
-        wxStaticText* leftLabel = new wxStaticText(this, wxID_ANY, wxT("列1："));
-        wxStaticText* rightLabel = new wxStaticText(this, wxID_ANY, wxT("列2："));
+        wxStaticText* leftLabel = new wxStaticText(this, wxID_ANY, wxT("表1列："));
+        wxStaticText* rightLabel = new wxStaticText(this, wxID_ANY, wxT("表2列："));
         m_filterLeftColumnChoice = new wxChoice(this, wxID_ANY);
         m_filterRightColumnChoice = new wxChoice(this, wxID_ANY);
         filterRow->Add(leftLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
@@ -113,6 +133,9 @@ void ExcelInputPanel::AddExtractColumnConfigRow(const wxString& extractColumnNam
     m_returnColumnsSizer->Add(rowSizer, 0, wxEXPAND | wxBOTTOM, 4);
     m_returnColumnConfigRows.push_back({ rowSizer, rowLabel, returnColInput, removeBtn });
     removeBtn->Bind(wxEVT_BUTTON, &ExcelInputPanel::OnRemoveExtractColumn, this);
+    returnColInput->Bind(wxEVT_CHOICE, [this](wxCommandEvent& WXUNUSED(evt)) {
+        RefreshColumnChoices();
+    });
 
     for (const auto& colName : m_detectedColumnNames)
     {
@@ -135,6 +158,7 @@ void ExcelInputPanel::AddExtractColumnConfigRow(const wxString& extractColumnNam
 void ExcelInputPanel::OnAddExtractColumn(wxCommandEvent& WXUNUSED(event))
 {
     AddExtractColumnConfigRow();
+    RefreshColumnChoices();
     Layout();
     GetParent()->Layout();
 
@@ -148,6 +172,12 @@ void ExcelInputPanel::OnAddExtractColumn(wxCommandEvent& WXUNUSED(event))
 
 void ExcelInputPanel::OnRemoveExtractColumn(wxCommandEvent& event)
 {
+    if (m_returnColumnConfigRows.size() <= 1)
+    {
+        wxMessageBox(wxT("提取列至少保留1个"), wxT("提示"), wxOK | wxICON_INFORMATION);
+        return;
+    }
+
     wxObject* src = event.GetEventObject();
     for (size_t i = 0; i < m_returnColumnConfigRows.size(); i++)
     {
@@ -172,6 +202,7 @@ void ExcelInputPanel::OnRemoveExtractColumn(wxCommandEvent& event)
                 row.removeButton->Destroy();
             }
             m_returnColumnConfigRows.erase(m_returnColumnConfigRows.begin() + i);
+            RefreshColumnChoices();
             Layout();
             GetParent()->Layout();
 
@@ -302,22 +333,19 @@ void ExcelInputPanel::RefreshColumnChoices()
         m_filterLeftColumnChoice->Clear();
         m_filterRightColumnChoice->Clear();
 
-        wxArrayString filterColumns = (m_filterBaseColumns.GetCount() == 0) ? m_detectedColumnNames : m_filterBaseColumns;
+        wxArrayString leftColumns = (m_filterBaseColumns.GetCount() > 0) ? m_filterBaseColumns : m_detectedColumnNames;
+        wxArrayString rightColumns;
         if (m_bHasReturnCol)
         {
-            wxArrayString extractNames = GetExtractColumnNames();
-            for (const auto& colName : extractNames)
-            {
-                if (filterColumns.Index(colName, false) == wxNOT_FOUND)
-                {
-                    filterColumns.Add(colName);
-                }
-            }
+            rightColumns = GetExtractColumnNames();
         }
 
-        for (const auto& colName : filterColumns)
+        for (const auto& colName : leftColumns)
         {
             m_filterLeftColumnChoice->Append(colName);
+        }
+        for (const auto& colName : rightColumns)
+        {
             m_filterRightColumnChoice->Append(colName);
         }
 
@@ -329,6 +357,10 @@ void ExcelInputPanel::RefreshColumnChoices()
                 m_filterLeftColumnChoice->SetSelection(idx);
             }
         }
+        if (m_filterLeftColumnChoice->GetSelection() == wxNOT_FOUND && m_filterLeftColumnChoice->GetCount() > 0)
+        {
+            m_filterLeftColumnChoice->SetSelection(0);
+        }
         if (!rightCurrent.IsEmpty())
         {
             int idx = m_filterRightColumnChoice->FindString(rightCurrent);
@@ -337,13 +369,29 @@ void ExcelInputPanel::RefreshColumnChoices()
                 m_filterRightColumnChoice->SetSelection(idx);
             }
         }
+        if (m_filterRightColumnChoice->GetSelection() == wxNOT_FOUND && m_filterRightColumnChoice->GetCount() > 0)
+        {
+            m_filterRightColumnChoice->SetSelection(0);
+        }
     }
+
+    NotifyColumnsUpdated();
 }
 
 void ExcelInputPanel::ConfigureFilterBaseColumns(const wxArrayString& baseColumns)
 {
-    m_filterBaseColumns = baseColumns;
+    if (baseColumns.GetCount() > 0)
+    {
+        m_filterBaseColumns = baseColumns;
+    }
     RefreshColumnChoices();
+}
+
+void ExcelInputPanel::NotifyColumnsUpdated()
+{
+    wxCommandEvent evt(wxEVT_EXCEL_PANEL_COLUMNS_UPDATED);
+    evt.SetEventObject(this);
+    wxPostEvent(GetParent(), evt);
 }
 
 void ExcelInputPanel::OnSelectFile(wxCommandEvent& WXUNUSED(event))
@@ -446,7 +494,6 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int m
     std::vector<wxArrayString> matchedColumns;
     matchedColumns.resize(extractColumnIndices.GetCount());
     LOG_INFO(wxString::Format(wxT("开始提取，共%d行"), (int)m_contentRows.size()).ToUTF8().data());
-    const int baseColumnCount = (m_filterBaseColumns.GetCount() == 0) ? m_titleNames.GetCount() : m_filterBaseColumns.GetCount();
 
     for (int index = 0; index < m_contentRows.size(); index++)
     {
@@ -463,8 +510,6 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int m
                 break;
 			}
         }
-        wxArrayString currentExtractValues;
-
         for (int colIdx = 0; colIdx < extractColumnIndices.GetCount(); colIdx++)
         {
             wxString searchValue;
@@ -474,48 +519,38 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int m
                 searchValue = (*foundOtherRow)[extractColumnIndex];
             }
             matchedColumns[colIdx].Add(searchValue);
-            currentExtractValues.Add(searchValue);
-        }
-
-        if (enableFilter)
-        {
-            auto getFilterValue = [&](int combinedIndex) -> wxString
-            {
-                if (combinedIndex < 0)
-                {
-                    return wxString("");
-                }
-                if (combinedIndex < baseColumnCount)
-                {
-                    if (combinedIndex < (int)myRow.GetCount())
-                    {
-                        return myRow[combinedIndex];
-                    }
-                    return wxString("");
-                }
-                int extractIdx = combinedIndex - baseColumnCount;
-                if (extractIdx >= 0 && extractIdx < (int)currentExtractValues.GetCount())
-                {
-                    return currentExtractValues[extractIdx];
-                }
-                return wxString("");
-            };
-
-            wxString leftValue = getFilterValue(filterLeftColumnIndex);
-            wxString rightValue = getFilterValue(filterRightColumnIndex);
-            if (leftValue != rightValue)
-            {
-                for (int colIdx = 0; colIdx < (int)matchedColumns.size(); colIdx++)
-                {
-                    matchedColumns[colIdx][index].clear();
-                }
-            }
         }
     }
 
     if (enableFilter)
     {
-        LOG_INFO("过滤完成：不满足条件的行已清空新加列");
+        for (int i = 0; i < (int)m_contentRows.size(); i++)
+        {
+            const auto& myRow = m_contentRows[i];
+            if (filterLeftColumnIndex < 0 || filterLeftColumnIndex >= (int)myRow.GetCount())
+            {
+                continue;
+            }
+            if (filterRightColumnIndex < 0 || filterRightColumnIndex >= (int)matchedColumns.size())
+            {
+                continue;
+            }
+            if (i >= (int)matchedColumns[filterRightColumnIndex].GetCount())
+            {
+                continue;
+            }
+
+            wxString leftValue = myRow[filterLeftColumnIndex];
+            wxString rightValue = matchedColumns[filterRightColumnIndex][i];
+            if (!leftValue.IsEmpty() && !rightValue.IsEmpty() && leftValue != rightValue)
+            {
+                for (int colIdx = 0; colIdx < (int)matchedColumns.size(); colIdx++)
+                {
+                    matchedColumns[colIdx][i].clear();
+                }
+            }
+        }
+        LOG_INFO("过滤完成：左右列均有值且不相等的行已清空提取值");
     }
 
     LOG_INFO("提取完成，结果：");
@@ -534,10 +569,16 @@ bool ExcelInputPanel::Match(const wxBaseArray<wxArrayString>& contentRows, int m
     try
     {
         const std::filesystem::path sourcePath(GetFilePath().ToStdWstring());
-        std::filesystem::path outputPath = sourcePath.parent_path() /
-            std::filesystem::path(sourcePath.stem().wstring() + L"_matched" + sourcePath.extension().wstring());
+        const std::wstring timestamp = BuildTimestampSuffix();
+        const std::wstring baseName = sourcePath.stem().wstring() + L"_matched_" + timestamp;
+        const std::wstring extName = sourcePath.extension().wstring();
+        std::filesystem::path outputPath = sourcePath.parent_path() / std::filesystem::path(baseName + extName);
+        for (int i = 1; std::filesystem::exists(outputPath) && i < 1000; i++)
+        {
+            outputPath = sourcePath.parent_path() / std::filesystem::path(baseName + L"_" + std::to_wstring(i) + extName);
+        }
 
-        std::filesystem::copy_file(sourcePath, outputPath, std::filesystem::copy_options::overwrite_existing);
+        std::filesystem::copy_file(sourcePath, outputPath, std::filesystem::copy_options::none);
 
         xlnt::workbook outputWorkbook;
         {
@@ -719,23 +760,19 @@ bool ExcelInputPanel::Parse() {
         {
             wxString leftName = m_filterLeftColumnChoice->GetStringSelection();
             wxString rightName = m_filterRightColumnChoice->GetStringSelection();
-            wxArrayString filterColumns = (m_filterBaseColumns.GetCount() == 0) ? titleNames : m_filterBaseColumns;
-            wxArrayString extractNames = GetExtractColumnNames();
-            for (const auto& colName : extractNames)
-            {
-                if (filterColumns.Index(colName, false) == wxNOT_FOUND)
-                {
-                    filterColumns.Add(colName);
-                }
-            }
+            wxArrayString leftColumns = (m_filterBaseColumns.GetCount() > 0) ? m_filterBaseColumns : titleNames;
+            wxArrayString rightColumns = GetExtractColumnNames();
 
-            for (int i = 0; i < filterColumns.GetCount(); i++)
+            for (int i = 0; i < leftColumns.GetCount(); i++)
             {
-                if (m_filterLeftColumnIndex == -1 && filterColumns[i] == leftName)
+                if (m_filterLeftColumnIndex == -1 && leftColumns[i] == leftName)
                 {
                     m_filterLeftColumnIndex = i;
                 }
-                if (m_filterRightColumnIndex == -1 && filterColumns[i] == rightName)
+            }
+            for (int i = 0; i < rightColumns.GetCount(); i++)
+            {
+                if (m_filterRightColumnIndex == -1 && rightColumns[i] == rightName)
                 {
                     m_filterRightColumnIndex = i;
                 }

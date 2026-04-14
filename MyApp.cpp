@@ -26,6 +26,7 @@ private:
     void OnHello(wxCommandEvent& event);
     void OnExit(wxCommandEvent& event);
     void OnAbout(wxCommandEvent& event);
+    void OnPanelColumnsUpdated(wxCommandEvent& event);
 
     void StartExtract(wxCommandEvent& event);
 
@@ -68,15 +69,26 @@ MyFrame::MyFrame()
     SetMenuBar(menuBar);
 
     CreateStatusBar();
-    SetStatusText("就绪");
+    SetStatusText(wxT("就绪"));
 
     Bind(wxEVT_MENU, &MyFrame::OnHello, this, ID_Hello);
     Bind(wxEVT_MENU, &MyFrame::OnAbout, this, wxID_ABOUT);
     Bind(wxEVT_MENU, &MyFrame::OnExit, this, wxID_EXIT);
+    Bind(wxEVT_EXCEL_PANEL_COLUMNS_UPDATED, &MyFrame::OnPanelColumnsUpdated, this);
 
     /////////////////////////////////////////////////////////
 
     wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+
+    // 使用说明：直接改这两个变量即可
+    const wxString usageText = wxT("使用说明：\n1. 先加载表1与表2\n2. 选择匹配列和提取列\n3. 点击“开始提取”生成新文件");
+    const int usageFontSize = 11;
+
+    wxStaticText* usageTextBlock = new wxStaticText(this, wxID_ANY, usageText);
+    wxFont usageFont = usageTextBlock->GetFont();
+    usageFont.SetPointSize(usageFontSize);
+    usageTextBlock->SetFont(usageFont);
+    mainSizer->Add(usageTextBlock, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 10);
 
     m_Panel1 = new ExcelInputPanel(this, wxT("表1："), false);
     mainSizer->Add(m_Panel1, 0, wxEXPAND | wxALL, 10);
@@ -107,6 +119,19 @@ void MyFrame::OnAbout(wxCommandEvent& event)
 {
     wxMessageBox("用于根据匹配列从表2提取字段并写回表1副本",
         "关于", wxOK | wxICON_INFORMATION);
+}
+
+void MyFrame::OnPanelColumnsUpdated(wxCommandEvent& event)
+{
+    if (!m_Panel1 || !m_Panel2)
+    {
+        return;
+    }
+
+    if (event.GetEventObject() == m_Panel1)
+    {
+        m_Panel2->ConfigureFilterBaseColumns(m_Panel1->GetDetectedColumnNames());
+    }
 }
 
 void MyFrame::StartExtract(wxCommandEvent& event)
